@@ -1,0 +1,369 @@
+
+#This is the first part of a larger GUI project and this script is a work in progress. This script allows someone to enter information that is use to create a text file containing a directory list of the user selected drive or directory
+
+from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtWidgets import QApplication, QCheckBox, QDialog, QFrame, QFormLayout, QMainWindow, QWidget, QLabel, QLineEdit, QTextEdit, QPushButton, QCheckBox, QHBoxLayout, QProgressBar, QVBoxLayout, QFileDialog, QMessageBox, QLineEdit, QGroupBox, QGridLayout, QTreeView, QFileSystemModel
+from PyQt5.QtGui import QIcon
+import subprocess
+import sys
+import psutil
+import os
+
+class DeselectDialog(QDialog):
+    def __init__(self, drives, directories, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Deselect Items")
+        
+        self.selected_drives = drives
+        self.selected_directories = directories
+        
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+
+        # Add checkboxes for drives
+        drive_group = QGroupBox("Drives")
+        drive_layout = QVBoxLayout()
+        drive_group.setLayout(drive_layout)
+        self.drive_checkboxes = []
+        for drive in self.selected_drives:
+            checkbox = QCheckBox(drive)
+            drive_layout.addWidget(checkbox)
+            self.drive_checkboxes.append(checkbox)
+        layout.addWidget(drive_group)
+        
+        # Add checkboxes for directories
+        directory_group = QGroupBox("Directories")
+        directory_layout = QVBoxLayout()
+        directory_group.setLayout(directory_layout)
+        self.directory_checkboxes = []
+        for directory in self.selected_directories:
+            checkbox = QCheckBox(directory)
+            directory_layout.addWidget(checkbox)
+            self.directory_checkboxes.append(checkbox)
+        layout.addWidget(directory_group)
+
+        # Add OK button
+        ok_button = QPushButton("OK")
+        ok_button.clicked.connect(self.accept)
+        layout.addWidget(ok_button)
+
+    def get_selected_items(self):
+        selected_drives = [checkbox.text() for checkbox in self.drive_checkboxes if checkbox.isChecked()]
+        selected_directories = [checkbox.text() for checkbox in self.directory_checkboxes if checkbox.isChecked()]
+        return selected_drives, selected_directories
+
+class DirOutputApp(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        
+        self.output_directory = ""
+        self.preserve_output_directory_var = False
+        self.selected_drives = set()
+        self.selected_directories = set()
+        
+        self.init_ui()
+
+    def init_ui(self):
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        
+        self.deselect_directory_button = QPushButton("Deselect Directory/Drive")
+        self.deselect_directory_button.clicked.connect(self.deselect_items)
+        
+        # Create the main layout
+        main_layout = QHBoxLayout()
+        central_widget.setLayout(main_layout)
+
+        # Create the layout for the left section
+        left_layout = QVBoxLayout()
+
+        # Create the Selected Items widget
+        ## Selected items text window
+        self.selected_items_widget = QWidget()
+        self.selected_items_layout = QVBoxLayout()
+        self.selected_items_widget.setLayout(self.selected_items_layout)
+        self.selected_items_label = QLabel("<b>Selected Items:</b>")
+        self.selected_items_text = QTextEdit()
+        self.selected_items_text.setReadOnly(True)
+        
+        ## Deselect button
+        self.deselect_selected_items_button = QPushButton("Deselect Selected Items")
+        self.deselect_selected_items_button.clicked.connect(self.deselect_selected_items)
+        self.selected_items_layout.addWidget(self.selected_items_label)
+        self.selected_items_layout.addWidget(self.selected_items_text)
+        
+        # self.selected_items_layout.addWidget(self.deselect_selected_items_button)
+
+        # Add the Selected Items widget to the left layout
+        left_layout.addWidget(self.selected_items_widget)
+        left_layout.addWidget(self.deselect_directory_button)
+        
+        # Create the layout for the right section (current grid layout)
+        right_layout = QGridLayout()
+        
+        # Add the left and right layouts to the main layout
+        main_layout.addLayout(left_layout)
+        main_layout.addLayout(right_layout)
+        
+        # Set window properties
+        self.setWindowTitle("Born-Digital Processing Application")
+        self.setGeometry(100, 100, 900, 500)
+
+        # Add your current widgets to the right layout
+        ## Select Directory button--call function
+        self.select_directory_button = QPushButton("Select Directory/Drive")
+        self.select_directory_button.clicked.connect(self.select_directory)
+        
+        ##labels that display selected directories and drives
+        self.selected_directory_label = QLabel()
+        self.selected_drive_label = QLabel()
+        
+        ##Deselect directory button--call function
+        self.deselect_directory_button = QPushButton("Deselect Directory/Drive")
+        self.deselect_directory_button.clicked.connect(self.deselect_items)
+        
+        #bag ID User enter in characters
+        ##Header--just a Label
+        self.label_file_name = QLabel("<b>Enter the file name (without extension):</b>")
+        
+        ##User entry for Collection number
+        self.label_file_name_collection_no = QLabel("Enter the <b>collection number</b>:")
+        self.entry_file_name_collection_no = QLineEdit()
+        self.entry_file_name_collection_no.setStyleSheet("QLineEdit {color: rgba(0, 0, 0, 100); }")
+        self.entry_file_name_collection_no.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        ##User entry for registration number
+        self.label_file_name_registration_no = QLabel("Enter the <b>registration number</b>:")
+        self.entry_file_name_registration_no = QLineEdit()
+        self.entry_file_name_registration_no.setStyleSheet("QLineEdit {color: rgba(0, 0, 0, 100); }")
+        self.entry_file_name_registration_no.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        ##User entry for media number
+        self.label_file_name_media_no = QLabel("Enter the <b>media count number</b>:")
+        self.entry_file_name_media_no = QLineEdit("")
+        self.entry_file_name_media_no.setStyleSheet("QLineEdit {color: rgba(0, 0, 0, 100); }")
+        self.entry_file_name_media_no.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        ##Checkbox to save the path to the selected directory
+        self.checkbox_preserve_output = QCheckBox("Preserve Output Directory")
+        
+        #button to select the output directory
+        self.button_select_output_dir = QPushButton("Select Output Directory")
+        
+        ##button to execute the program
+        self.button_run_program = QPushButton("Run")
+        
+        ##Showing the directory listing output 
+        self.output_text = QTextEdit()
+        self.output_text.setReadOnly(True)
+        
+        # Layout of the Right side of the GUI
+        right_layout.addWidget(self.select_directory_button, 0, 0)
+        right_layout.addWidget(self.selected_directory_label, 0, 1)
+        # right_layout.addWidget(self.deselect_directory_button, 1, 0)
+        right_layout.addWidget(self.selected_drive_label, 1, 1)
+        right_layout.addWidget(self.label_file_name, 2, 0)
+        right_layout.addWidget(self.label_file_name_collection_no, 3, 0)
+        right_layout.addWidget(self.entry_file_name_collection_no, 3, 1)
+        right_layout.addWidget(self.label_file_name_registration_no, 4, 0)
+        right_layout.addWidget(self.entry_file_name_registration_no, 4, 1)
+        right_layout.addWidget(self.label_file_name_media_no, 5, 0)
+        right_layout.addWidget(self.entry_file_name_media_no, 5, 1)
+        right_layout.addWidget(self.checkbox_preserve_output, 6, 0, 1, 2)
+        right_layout.addWidget(self.button_select_output_dir, 7, 0, 1, 2)
+        right_layout.addWidget(self.button_run_program, 8, 0, 1, 2)
+        right_layout.addWidget(self.output_text, 9, 0, 1, 2)
+
+        # Add the left and right layouts to the main layout
+        # main_layout.addLayout(left_layout)
+        # main_layout.addLayout(right_layout)
+
+        ## Label of the window/program
+        self.setWindowTitle("Born-Digital Processing Application")
+        self.setGeometry(100, 100, 900, 500)
+        
+        ## When run and select output directory buttons are pressed -- calls functions
+        self.button_select_output_dir.clicked.connect(self.set_output_dir)
+        self.button_run_program.clicked.connect(self.on_run_button_clicked)
+
+        self.run_button_color = "gray"
+        
+    def deselect_selected_items(self):
+        # Deselect all selected items
+        self.selected_drives.clear()
+        self.selected_directories.clear()
+        self.update_selected_items_text()
+
+    def update_selected_items_text(self):
+        # Update the text in the selected items text edit
+        selected_items_text = "\n".join(self.selected_drives) + "\n" + "\n".join(self.selected_directories)
+        self.selected_items_text.setPlainText(selected_items_text)
+
+    # Select Directory section--start Need to revise based on the CHATGPT produced script
+    def select_directory(self):
+        directory = QFileDialog.getExistingDirectory(self, "Select Directory")
+        print(f"This is a directory or drive: {directory }")
+        if directory:
+            if os.path.ismount(directory):
+                # print(f'This is a drive: {directory}')
+                if directory not in self.selected_drives:  # Check if drive is not already selected
+                    self.selected_drives.add(directory)
+                    # print(f'selected drives: {directory}')
+                    self.update_selected_drive_label()
+                    # print(self.selected_drives)
+                else:
+                    QMessageBox.warning(self, "Warning", "Drive already selected.", QMessageBox.StandardButton.Ok)
+            elif os.path.isdir(directory):
+                # print(f" This is a directory: {directory}")
+                if directory not in self.selected_directories:  # Check if directory is not already selected
+                    self.selected_directories.add(directory)
+                    self.update_selected_directories_label()
+                    print(self.selected_directories)
+                else:
+                    QMessageBox.warning(self, "Warning", "Directory already selected.", QMessageBox.StandardButton.Ok)
+            self.update_selected_items_text()
+            
+    # Function to run when the Select Directory/Drive button is clicked and the selected is a directory     
+    def update_selected_directories_label(self):
+         #create the if directory, if drive; display the directory seperate from drives; allow user to deselect a directory or drive before running.
+        dir_text = "<br>".join([f"<font color='blue'>Selected directory:</font> <font color='red'>{directory}</font>" for directory in self.selected_directories])
+        self.selected_directory_label.setText(dir_text)
+
+        
+    # Function to run when the Select Directory/Drive button is clicked and the selected is a drive 
+    def update_selected_drive_label(self):
+     #create the if directory, if drive; display the directory seperate from drives; allow user to deselect a directory or drive before running.
+        dir_text = "<br>".join([f"<font color='blue'>Selected Drive:</font> <font color='red'>{drive}</font>" for drive in self.selected_drives])
+        self.selected_drive_label.setText(dir_text)
+
+# Function to run when the Select Output button is clicked and the selected is a drive
+    def set_output_dir(self):
+        directory = QFileDialog.getExistingDirectory(self, "Select Output Directory")
+        if directory:
+            self.output_directory = directory
+            
+# Function to run when the Run button is clicked and the selected is a drive
+
+    def on_run_button_clicked(self):
+        if self.run_button_color == "gray" or self.run_button_color == "red":
+            self.run_button_color = "green"
+            self.button_run_program.setStyleSheet("background-color: gray;")
+            if self.selected_drives:
+                self.run_drive_command()
+            if self.selected_directories:
+                self.run_dir_command()
+        elif self.run_button_color == "red":
+            self.run_button_color = "green"
+            self.button_run_program.setStyleSheet("background-color: green;")
+            #when run display the files being checked
+
+
+
+
+
+    # def on_run_button_clicked(self):
+    #     directory = QFileDialog.getExistingDirectory(self, "Select Directory")
+    #     if self.run_button_color == "gray" or self.run_button_color == "red":
+    #         self.run_button_color = "green"
+    #         self.button_run_program.setStyleSheet("background-color: gray;")
+    #         if os.path.ismount(directory):
+    #             self.run_drive_command(directory)
+    #         if os.path.isdir(directory):
+    #             self.run_dir_command()
+    #     elif self.run_button_color == "red":
+    #         self.run_button_color = "green"
+    #         self.button_run_program.setStyleSheet("background-color: green;")
+            #when run display the files being checked 
+    
+#Run Directory Command--Called when the run button is clicked; Apart of the on_run_button_clicked function      
+    def run_dir_command(self):
+        collection_no = self.entry_file_name_collection_no.text()
+        registration_no = self.entry_file_name_registration_no.text()
+        media_no = self.entry_file_name_media_no.text()
+#NOTEconvert media_no to a list allow single digit, listed series of digits, or a range##
+        for selected_directory in self.selected_directories:
+            if os.path.isdir(selected_directory):
+                bat_command = f'dir "{selected_directory}" /a /s /t:w > "{self.output_directory}/{"mss"+collection_no}_{registration_no}_{media_no}_{selected_directory.split("/")[-1]}_dir.txt"'
+                bat_viewable = f'dir "{selected_directory}" /a /s /t:w'
+            else:
+                print(f"Not a valid directory: {selected_directory}")
+            try:
+                subprocess.run(bat_command, shell=True, check=True)
+                viewable_cmd = subprocess.run(bat_viewable, shell=True, check=True, stdout=subprocess.PIPE, text=True)
+                self.output_text.append(f"Output for directory {selected_directory}:\n{viewable_cmd.stdout}")
+            except subprocess.CalledProcessError as e:
+                self.output_text.append(f"Error for directory {selected_directory}: {e}")
+        # Set button color to red after completion of all directories
+        self.run_button_color = "red"
+        self.button_run_program.setStyleSheet("background-color: red;")
+        
+    def run_drive_command(self):
+        collection_no = self.entry_file_name_collection_no.text()
+        registration_no = self.entry_file_name_registration_no.text()
+        media_no = self.entry_file_name_media_no.text()
+#NOTEconvert media_no to a list allow single digit, listed series of digits, or a range##
+        for selected_drive in self.selected_drives:
+            if os.path.ismount(selected_drive):
+                bat_command = f'dir "{selected_drive}" /a /s /t:w > "{self.output_directory}/{"mss"+collection_no}_{registration_no}_{media_no}_dir.txt"'
+                bat_viewable = f'dir "{selected_drive}" /a /s /t:w'
+            else:
+                print(f"Not a valid drive entry: {selected_drive}")
+            try:
+                subprocess.run(bat_command, shell=True, check=True)
+                viewable_cmd = subprocess.run(bat_viewable, shell=True, check=True, stdout=subprocess.PIPE, text=True)
+                self.output_text.append(f"Output for drive {selected_drive}:\n{viewable_cmd.stdout}")
+            except subprocess.CalledProcessError as e:
+                self.output_text.append(f"Error for drive {selected_drive}: {e}")
+        # Set button color to red after completion of all directories
+        self.run_button_color = "red"
+        self.button_run_program.setStyleSheet("background-color: red;")
+
+
+    # Select Drive section--start        
+    def update_selected_items_text(self):
+        # Update the text in the selected items text edit
+        selected_items_text = "\n".join(self.selected_drives) + "\n" + "\n".join(self.selected_directories)
+        self.selected_items_text.setPlainText(selected_items_text)
+        
+    def deselect_selected_items(self):
+        # Deselect all selected items
+        self.selected_drives.clear()
+        self.selected_directories.clear()
+        self.update_selected_items_text()
+        
+    def deselect_items(self):
+        # Create and display the deselect dialog
+        deselect_dialog = DeselectDialog(self.selected_drives, self.selected_directories)
+        if deselect_dialog.exec() == QDialog.DialogCode.Accepted:
+            # Get selected items from the dialog
+            selected_drives, selected_directories = deselect_dialog.get_selected_items()
+            
+            # Remove selected drives and directories
+            for drive in selected_drives:
+                self.selected_drives.remove(drive)
+            for directory in selected_directories:
+                self.selected_directories.remove(directory)
+                
+        
+            # Update displayed lists
+            self.update_selected_drive_label()
+            self.update_selected_directories_label()
+            
+           # Update the text in the selected items window
+            self.update_selected_items_text()
+
+def main():
+    app = QApplication(sys.argv)
+    app.setStyle("Fusion")
+    window = DirOutputApp()
+    icon_path = os.path.join("images", "US-LibraryOfCongress-Logo.jpg")
+    window.setWindowIcon(QIcon(icon_path))
+    window.show()
+    sys.exit(app.exec())
+
+if __name__ == "__main__":
+    main()
+
